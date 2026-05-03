@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+
+import sys
+import shutil
+
+def is_installed(binary):
+    return shutil.which(binary) is not None
+
+def ensure_yt_dlp():
+    try:
+        import yt_dlp  # noqa: F401
+    except ImportError:
+        print("\n❌ yt-dlp is required but not installed in this Python environment.\n")
+        print("Install it with one of the following:\n")
+        print("👉 pipx install yt-dlp")
+        print("👉 python3 -m venv venv && source venv/bin/activate && pip install yt-dlp\n")
+        sys.exit(1)
+
+def ensure_ffmpeg():
+    if not is_installed("ffmpeg"):
+        print("\n❌ FFmpeg is required but not installed.\n")
+        print("Install it from:")
+        print("👉 https://ffmpeg.org/download.html\n")
+        print("After installing, make sure it's available in your PATH.")
+        sys.exit(1)
+
+def detect_playlist(url):
+    import yt_dlp
+
+    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+        if 'entries' in info:
+            return True, info.get('title', 'playlist')
+
+        return False, None
+
+def download_audio(url, is_playlist, playlist_title=None):
+    import yt_dlp
+
+    if is_playlist:
+        outtmpl = f"{playlist_title}/%(uploader)s - %(title)s.%(ext)s"
+    else:
+        outtmpl = "%(uploader)s - %(title)s.%(ext)s"
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': outtmpl,
+        'writethumbnail': True,
+        'embedthumbnail': True,
+        'addmetadata': True,
+        'postprocessors': [
+            {
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '0',
+            },
+            {
+                'key': 'EmbedThumbnail',
+            },
+            {
+                'key': 'FFmpegMetadata',
+            },
+        ],
+        'noplaylist': not is_playlist,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+
+def main():
+    urls = sys.argv[1:]
+
+    if not urls:
+        print("Usage: dlsong <URL> [URL...]")
+        sys.exit(1)
+
+    ensure_yt_dlp()
+    ensure_ffmpeg()
+
+    for url in urls:
+        print(f"\n🔗 Processing: {url}")
+        print("🔍 Detecting URL type...")
+
+        is_playlist, playlist_title = detect_playlist(url)
+
+        if is_playlist:
+            print(f"📂 Playlist detected: {playlist_title}")
+        else:
+            print("🎵 Single video detected")
+
+        download_audio(url, is_playlist, playlist_title)
+
+if __name__ == "__main__":
+    main()
