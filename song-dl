@@ -104,6 +104,7 @@ def download_audio(url, is_playlist, playlist_title=None, browser=None):
             },
         ],
         'noplaylist': not is_playlist,
+        'ignoreerrors': is_playlist,
         **browser_cookie_options(browser),
     }
 
