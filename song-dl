@@ -70,7 +70,11 @@ def default_browser_for_url(url):
 
 def detect_playlist(url, browser=None):
     yt_dlp = load_yt_dlp()
-    options = {'quiet': True, **browser_cookie_options(browser)}
+    options = {
+        'quiet': True,
+        'extract_flat': True,
+        **browser_cookie_options(browser),
+    }
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=False)
         if 'entries' in info:
