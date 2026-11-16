@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 import argparse
+from urllib.parse import urlparse
 
 def load_yt_dlp():
     """Import yt_dlp from the interpreter used by the yt-dlp command, if needed."""
@@ -61,6 +62,12 @@ def browser_cookie_options(browser):
         return {'cookiesfrombrowser': (browser,)}
     return {}
 
+def default_browser_for_url(url):
+    host = (urlparse(url).hostname or '').lower().rstrip('.')
+    if host == 'youtube.com' or host.endswith('.youtube.com') or host == 'youtu.be' or host.endswith('.youtu.be'):
+        return 'chrome'
+    return None
+
 def detect_playlist(url, browser=None):
     yt_dlp = load_yt_dlp()
     options = {'quiet': True, **browser_cookie_options(browser)}
@@ -101,32 +108,32 @@ def download_audio(url, is_playlist, playlist_title=None, browser=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Download audio as MP3. Browser cookies can enable access to age-restricted videos.'
+        description='Download audio as MP3. Chrome cookies are used automatically for YouTube URLs.'
     )
     parser.add_argument(
         '--cookies-from-browser',
         metavar='BROWSER',
-        help='read your signed-in cookies from a browser (e.g. safari, chrome, firefox, brave)',
+        help='explicitly read signed-in cookies from a browser for any supported URL',
     )
     parser.add_argument('urls', nargs='+', metavar='URL')
     args = parser.parse_args()
-    urls = args.urls
 
     ensure_yt_dlp()
     ensure_ffmpeg()
 
-    for url in urls:
+    for url in args.urls:
         print(f"\n🔗 Processing: {url}")
         print("🔍 Detecting URL type...")
 
-        is_playlist, playlist_title = detect_playlist(url, args.cookies_from_browser)
+        browser = args.cookies_from_browser or default_browser_for_url(url)
+        is_playlist, playlist_title = detect_playlist(url, browser)
 
         if is_playlist:
             print(f"📂 Playlist detected: {playlist_title}")
         else:
             print("🎵 Single video detected")
 
-        download_audio(url, is_playlist, playlist_title, args.cookies_from_browser)
+        download_audio(url, is_playlist, playlist_title, browser)
 
 if __name__ == "__main__":
     main()
