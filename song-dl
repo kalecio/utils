@@ -2,14 +2,46 @@
 
 import sys
 import shutil
+import subprocess
+from pathlib import Path
+import argparse
+
+def load_yt_dlp():
+    """Import yt_dlp from the interpreter used by the yt-dlp command, if needed."""
+    try:
+        import yt_dlp
+        return yt_dlp
+    except ImportError:
+        executable = shutil.which("yt-dlp")
+        if not executable:
+            return None
+
+        # Homebrew and pipx commonly install yt-dlp in an isolated Python
+        # environment, separate from the interpreter running this script.
+        resolved = Path(executable).resolve()
+        try:
+            with resolved.open(encoding="utf-8") as stream:
+                shebang = stream.readline().strip()
+            interpreter = shebang[2:].split()[0] if shebang.startswith("#!") else None
+            if interpreter:
+                paths = subprocess.check_output(
+                    [interpreter, "-c", "import sys; print('\n'.join(sys.path))"],
+                    text=True,
+                ).splitlines()
+                for path in paths:
+                    if path and path not in sys.path:
+                        sys.path.append(path)
+                import yt_dlp
+                return yt_dlp
+        except (OSError, subprocess.CalledProcessError, ImportError, IndexError):
+            pass
+        return None
 
 def is_installed(binary):
     return shutil.which(binary) is not None
 
 def ensure_yt_dlp():
-    try:
-        import yt_dlp  # noqa: F401
-    except ImportError:
+    if load_yt_dlp() is None:
         print("\n❌ yt-dlp is required but not installed in this Python environment.\n")
         print("Install it with one of the following:\n")
         print("👉 pipx install yt-dlp")
@@ -24,20 +56,22 @@ def ensure_ffmpeg():
         print("After installing, make sure it's available in your PATH.")
         sys.exit(1)
 
-def detect_playlist(url):
-    import yt_dlp
+def browser_cookie_options(browser):
+    if browser:
+        return {'cookiesfrombrowser': (browser,)}
+    return {}
 
-    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+def detect_playlist(url, browser=None):
+    yt_dlp = load_yt_dlp()
+    options = {'quiet': True, **browser_cookie_options(browser)}
+    with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=False)
-
         if 'entries' in info:
             return True, info.get('title', 'playlist')
-
         return False, None
 
-def download_audio(url, is_playlist, playlist_title=None):
-    import yt_dlp
-
+def download_audio(url, is_playlist, playlist_title=None, browser=None):
+    yt_dlp = load_yt_dlp()
     if is_playlist:
         outtmpl = f"{playlist_title}/%(uploader)s - %(title)s.%(ext)s"
     else:
@@ -47,7 +81,6 @@ def download_audio(url, is_playlist, playlist_title=None):
         'format': 'bestaudio/best',
         'outtmpl': outtmpl,
         'writethumbnail': True,
-        'embedthumbnail': True,
         'addmetadata': True,
         'postprocessors': [
             {
@@ -56,24 +89,28 @@ def download_audio(url, is_playlist, playlist_title=None):
                 'preferredquality': '0',
             },
             {
-                'key': 'EmbedThumbnail',
-            },
-            {
                 'key': 'FFmpegMetadata',
             },
         ],
         'noplaylist': not is_playlist,
+        **browser_cookie_options(browser),
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
 def main():
-    urls = sys.argv[1:]
-
-    if not urls:
-        print("Usage: dlsong <URL> [URL...]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description='Download audio as MP3. Browser cookies can enable access to age-restricted videos.'
+    )
+    parser.add_argument(
+        '--cookies-from-browser',
+        metavar='BROWSER',
+        help='read your signed-in cookies from a browser (e.g. safari, chrome, firefox, brave)',
+    )
+    parser.add_argument('urls', nargs='+', metavar='URL')
+    args = parser.parse_args()
+    urls = args.urls
 
     ensure_yt_dlp()
     ensure_ffmpeg()
@@ -82,14 +119,14 @@ def main():
         print(f"\n🔗 Processing: {url}")
         print("🔍 Detecting URL type...")
 
-        is_playlist, playlist_title = detect_playlist(url)
+        is_playlist, playlist_title = detect_playlist(url, args.cookies_from_browser)
 
         if is_playlist:
             print(f"📂 Playlist detected: {playlist_title}")
         else:
             print("🎵 Single video detected")
 
-        download_audio(url, is_playlist, playlist_title)
+        download_audio(url, is_playlist, playlist_title, args.cookies_from_browser)
 
 if __name__ == "__main__":
     main()
